@@ -1,0 +1,39 @@
+ARG WALLABAG_VERSION=2.4.2
+ARG DBNAME=wallabag
+ARG DBUSER=u_wallabag
+ARG DBPASS=mypass
+ARG SECRET=mysecret
+ARG FQDN=http://${JAIL_IP}
+ARG LOCALE=en
+
+PKG php74-session php74-ctype php74-dom php74-simplexml php74-json php74-gd php74-mbstring php74-xml php74-tidy php74-iconv php74-curl php74-gettext php74-tokenizer php74-bcmath php74-intl php74-pdo_pgsql php74-composer php74-sockets php74-xmlreader php74-zlib postgresql12-server nginx git
+
+SYSRC postgresql_enable=YES
+SYSRC php_fpm_enable=YES
+SYSRC nginx_enable=YES
+
+CP etc /usr/local/
+
+# Service, sysvshm must be new in jail.conf or postgre
+SERVICE postgresql initdb
+SERVICE postgresql start
+SERVICE php-fpm start
+SERVICE nginx start
+
+# Create role and database
+CMD echo "CREATE ROLE ${DBUSER} WITH LOGIN ENCRYPTED PASSWORD '${DBPASS}'" | su postgres -c psql
+CMD echo "CREATE DATABASE ${DBNAME} OWNER ${DBUSER};" | su postgres -c psql
+CMD echo "GRANT ALL PRIVILEGES ON DATABASE ${DBNAME} TO ${DBUSER};" | su postgres -c psql
+
+# Download wallabag
+CMD mkdir -p /usr/local/www/wallabag
+CMD git clone --branch ${WALLABAG_VERSION} --depth 1 https://github.com/wallabag/wallabag.git /usr/local/www/wallabag
+CP www /usr/local
+
+# Process config file
+RENDER /usr/local/www/wallabag/app/config/parameters.yml
+
+# Launch installation via composer
+CMD chown -R nobody:nobody /usr/local/www/wallabag
+CMD cd /usr/local/www/wallabag && su -m nobody -c "composer install --no-dev --no-cache -o --no-scripts"
+CMD cd /usr/local/www/wallabag && su -m nobody -c "php bin/console wallabag:install --env=prod -n"
